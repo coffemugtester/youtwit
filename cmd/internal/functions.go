@@ -84,27 +84,6 @@ func GetTranscript(ctx context.Context, videoID string) (TranscriptSegments, err
 
 const DefaultBaseURL = "http://localhost:11434"
 
-type GenerateRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-	Stream bool   `json:"stream"`
-}
-
-type GenerateResponse struct {
-	Model              string    `json:"model"`
-	CreatedAt          time.Time `json:"created_at"`
-	Response           string    `json:"response"`
-	Done               bool      `json:"done"`
-	DoneReason         string    `json:"done_reason"`
-	Context            []int     `json:"context"`
-	TotalDuration      int64     `json:"total_duration"`
-	LoadDuration       int64     `json:"load_duration"`
-	PromptEvalCount    int       `json:"prompt_eval_count"`
-	PromptEvalDuration int64     `json:"prompt_eval_duration"`
-	EvalCount          int       `json:"eval_count"`
-	EvalDuration       int64     `json:"eval_duration"`
-}
-
 // Generate calls /api/Generate once (non-streaming) and returns the parsed response.
 // baseURL example: "http://localhost:11434"
 func Generate(ctx context.Context, baseURL, model, prompt string) (*GenerateResponse, error) {
@@ -153,6 +132,28 @@ func Generate(ctx context.Context, baseURL, model, prompt string) (*GenerateResp
 	}
 	return &out, nil
 }
+
+type GenerateRequest struct {
+	Model  string `json:"model"`
+	Prompt string `json:"prompt"`
+	Stream bool   `json:"stream"`
+}
+
+type GenerateResponse struct {
+	Model              string    `json:"model"`
+	CreatedAt          time.Time `json:"created_at"`
+	Response           string    `json:"response"`
+	Done               bool      `json:"done"`
+	DoneReason         string    `json:"done_reason"`
+	Context            []int     `json:"context"`
+	TotalDuration      int64     `json:"total_duration"`
+	LoadDuration       int64     `json:"load_duration"`
+	PromptEvalCount    int       `json:"prompt_eval_count"`
+	PromptEvalDuration int64     `json:"prompt_eval_duration"`
+	EvalCount          int       `json:"eval_count"`
+	EvalDuration       int64     `json:"eval_duration"`
+}
+
 
 var ThinkRe = regexp.MustCompile(`(?s)<think>[\s\S]*?</think>\s*`)
 
@@ -223,36 +224,5 @@ func CallOpenAI(ctx context.Context, prompt string) (*OpenAIResponse, error) {
 		return nil, fmt.Errorf("unmarshal: %w\nraw: %s", err, data)
 	}
 	return &out, nil
-}
-
-
-type TranscriptSegment struct {
-    Duration float64 `json:"duration"`
-    Start    float64 `json:"start"`
-    Text     string  `json:"text,omitempty"`
-}
-
-type TranscriptSegments []TranscriptSegment
-
-type OpenAIResponse struct {
-	ID     string `json:"id"`
-	Object string `json:"object"`
-	// The "output" field of /responses can be more complex; here we keep it generic
-	Output []OAImessage `json:"output"`
-}
-
-type OAImessage struct {
-	ID      string       `json:"id"`
-	Type    string       `json:"type"`
-	Status  string       `json:"status"`
-	Role    string       `json:"role"`
-	Content []OAIcontent `json:"content"`
-}
-
-type OAIcontent struct {
-	Type        string        `json:"type"`
-	Text        string        `json:"text"`
-	Annotations []interface{} `json:"annotations"`
-	Logprobs    []interface{} `json:"logprobs"`
 }
 

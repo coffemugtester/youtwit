@@ -21,10 +21,10 @@ import (
 
 func getSummary(command *cobra.Command, args []string){
 	var summary string
+	// TODO: pass the whole video url
 	videoId, _ := command.Flags().GetString("videoId")
-	local, _ := command.Flags().GetBool("local")
+	useOllama, _ := command.Flags().GetBool("local")
 
-	useOllama := local
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -36,6 +36,7 @@ func getSummary(command *cobra.Command, args []string){
 	transcriptString := cmd.TranscriptToString(transcript)
 
 	fmt.Println("~Tokens", len(transcriptString)/4)
+	// TODO: wrap request functions into a client and structure a response
 	if useOllama {
 		resp, err := cmd.Generate(ctx, "", "qwen3:14b", fmt.Sprintf("Summarize the following transcript of a video into around 600 characters: %s", transcriptString))
 		fmt.Println(resp)
@@ -55,7 +56,7 @@ func getSummary(command *cobra.Command, args []string){
 	summary = makeSummary(videoId, openAiResponseText)
 	}
 
-	fmt.Println("Local model:", local)
+	fmt.Println("Local model:", useOllama)
 	fmt.Println(summary)
 	clipboard.WriteAll(summary)
 }
