@@ -82,8 +82,6 @@ func GetTranscript(ctx context.Context, videoID string) (TranscriptSegments, err
 	return nil, fmt.Errorf("unexpected JSON shape; sample: %.200s", string(jsonBytes))
 }
 
-// Ollama
-
 const DefaultBaseURL = "http://localhost:11434"
 
 type GenerateRequest struct {
