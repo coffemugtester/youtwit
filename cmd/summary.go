@@ -32,16 +32,13 @@ func getSummary(cmd *cobra.Command, args []string){
 
 	// TODO: handle No transcripts were found for any of the requested language codes: ['en']
 	// For this video (wsDROfiAqxg) transcripts are available in the following languages:
-	// TODO: handle video id's starting with `-`
 	transcript, err := getTranscript(ctx, videoId)
 	if err != nil {
 		panic(fmt.Errorf("panic error: %s", err))
 	}
 
-	// fmt.Printf("Transcript: %+v\n", transcript)
 	transcriptString := transcriptToString(transcript)
 
-	// fmt.Printf("Transcript clean:\n%s\n", transcriptString)
 	fmt.Println("~Tokens", len(transcriptString)/4)
 	openAiResponse, err := callOpenAI(ctx, fmt.Sprintf("Summarize the following transcript of a video into around 600 characters: %s", transcriptString))
 	if err != nil {
@@ -54,8 +51,6 @@ func getSummary(cmd *cobra.Command, args []string){
 
 	fmt.Println(summary)
 	clipboard.WriteAll(summary)
-
-	// TODO: copy to clipboard
 }
 
 
@@ -75,8 +70,12 @@ func transcriptToString(segs TranscriptSegments) string {
 func getTranscript(ctx context.Context, videoID string) (TranscriptSegments, error) {
 	var out TranscriptSegments
 
+	if strings.Index(videoID, "-") == 0 {
+		videoID = "\\" + videoID
+	}
+
 	// 1) Run the CLI (pipx/pip installed)
-	cli := exec.CommandContext(ctx, "youtube_transcript_api", videoID)
+	cli := exec.CommandContext(ctx, "youtube_transcript_api", videoID, "--languages", "en", "es", "de", "pt")
 	// --languages de en
 	// --languages de en --exclude-generated
 	// --languages de en --exclude-manually-created
