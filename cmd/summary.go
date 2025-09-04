@@ -60,8 +60,7 @@ func getSummary(command *cobra.Command, args []string){
 	summary = makeSummary(videoId, openAiResponseText)
 	}
 
-	fmt.Println("Local model:", useOllama)
-	fmt.Println(summary)
+	fmt.Printf("Local model: %v\n%s\n", useOllama, summary)
 	clipboard.WriteAll(summary)
 }
 
