@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"youtwt/cmd/internal"
+	"youtwt/core"
 
 	"github.com/atotto/clipboard"
 	"github.com/spf13/cobra"
@@ -30,28 +30,28 @@ func getSummary(command *cobra.Command, args []string){
 		videoId = after
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 
-	transcript, err := cmd.GetTranscript(ctx, videoId)
+	transcript, err := core.GetTranscript(ctx, videoId)
 	if err != nil {
 		panic(fmt.Errorf("panic error: %s", err))
 	}
 
-	transcriptString := cmd.TranscriptToString(transcript)
+	transcriptString := core.TranscriptToString(transcript)
 
 	fmt.Println("~Tokens", len(transcriptString)/4)
 	// TODO: wrap request functions into a client and structure a response
 	if useOllama {
-		resp, err := cmd.Generate(ctx, "", "qwen3:14b", fmt.Sprintf("Summarize the following transcript of a video into around 600 characters: %s", transcriptString))
+		resp, err := core.Generate(ctx, "", "qwen3:14b", fmt.Sprintf("Summarize the following transcript of a video into around 600 characters: %s", transcriptString))
 	if err != nil {
 			panic(fmt.Errorf("at ollama generation %s", err))
 		}
-		clean := cmd.StripThink(resp.Response)
+		clean := core.StripThink(resp.Response)
 		summary = makeSummary(videoId, clean)
 	} else {
 
-	openAiResponse, err := cmd.CallOpenAI(ctx, fmt.Sprintf("Summarize the following transcript of a video into around 600 characters: %s", transcriptString))
+	openAiResponse, err := core.CallOpenAI(ctx, fmt.Sprintf("Summarize the following transcript of a video into around 600 characters: %s", transcriptString))
 	if err != nil {
 		panic(fmt.Errorf("at openAiResponse: %s", err))
 	}

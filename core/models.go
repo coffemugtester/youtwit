@@ -1,4 +1,4 @@
-package cmd
+package core
 
 type TranscriptSegment struct {
     Duration float64 `json:"duration"`
