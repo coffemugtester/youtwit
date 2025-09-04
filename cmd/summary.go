@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"youtwt/cmd/internal"
@@ -13,7 +14,7 @@ import (
 
 // func init() {
 // 	rootCmd.AddCommand(summarizeCmd)
-// 
+//
 //  	summarizeCmd.Flags().StringVarP(&videoId, "videoId", "v", "", "The ID of the video to be summarized")
 //  	_ = summarizeCmd.MarkFlagRequired("videoId")
 //  }
@@ -25,7 +26,11 @@ func getSummary(command *cobra.Command, args []string){
 	videoId, _ := command.Flags().GetString("videoId")
 	useOllama, _ := command.Flags().GetBool("local")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	if _, after, found := strings.Cut(videoId, "="); found {
+		videoId = after
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	transcript, err := cmd.GetTranscript(ctx, videoId)
@@ -39,7 +44,6 @@ func getSummary(command *cobra.Command, args []string){
 	// TODO: wrap request functions into a client and structure a response
 	if useOllama {
 		resp, err := cmd.Generate(ctx, "", "qwen3:14b", fmt.Sprintf("Summarize the following transcript of a video into around 600 characters: %s", transcriptString))
-		fmt.Println(resp)
 	if err != nil {
 			panic(fmt.Errorf("at ollama generation %s", err))
 		}
