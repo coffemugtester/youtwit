@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -21,18 +22,25 @@ import (
 
 func GetSummary(command *cobra.Command, args []string){
 	var summary string
-	// TODO: pass the whole video url
-	videoId, _ := command.Flags().GetString("videoId")
+
+	fmt.Print("Enter youtube URL: ")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	youtubeURL := strings.TrimSpace(scanner.Text())
+
+	fmt.Println()
+
 	useOllama, _ := command.Flags().GetBool("local")
 
-	if _, after, found := strings.Cut(videoId, "="); found {
-		videoId = after
+	if _, after, found := strings.Cut(youtubeURL, "="); found {
+		youtubeURL = after
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 
-	transcript, err := GetTranscript(ctx, videoId)
+	transcript, err := GetTranscript(ctx, youtubeURL)
 	if err != nil {
 		panic(fmt.Errorf("panic error: %s", err))
 	}
@@ -47,7 +55,7 @@ func GetSummary(command *cobra.Command, args []string){
 			panic(fmt.Errorf("at ollama generation %s", err))
 		}
 		clean := StripThink(resp.Response)
-		summary = makeSummary(videoId, clean)
+		summary = makeSummary(youtubeURL, clean)
 	} else {
 
 	openAiResponse, err := CallOpenAI(ctx, fmt.Sprintf("Summarize the following transcript of a video into around 600 characters: %s", transcriptString))
@@ -56,7 +64,7 @@ func GetSummary(command *cobra.Command, args []string){
 	}
 
 	openAiResponseText := openAiResponse.Output[0].Content[0].Text
-	summary = makeSummary(videoId, openAiResponseText)
+	summary = makeSummary(youtubeURL, openAiResponseText)
 	}
 
 	fmt.Printf("Local model: %v\n%s\n", useOllama, summary)
@@ -64,8 +72,8 @@ func GetSummary(command *cobra.Command, args []string){
 }
 
 
-func makeSummary(videoId, response string) string {
-	return fmt.Sprintf("https://www.youtube.com/watch?v=%s\nSummary: %s\n", videoId, response)
+func makeSummary(youtubeURL, response string) string {
+	return fmt.Sprintf("https://www.youtube.com/watch?v=%s\nSummary: %s\n", youtubeURL, response)
 }
 // TranscriptToString joins all `Text` fields from the transcript segments into a single string.
 func TranscriptToString(segs TranscriptSegments) string {
@@ -80,15 +88,15 @@ func TranscriptToString(segs TranscriptSegments) string {
 }
 
 
-func GetTranscript(ctx context.Context, videoID string) (TranscriptSegments, error) {
+func GetTranscript(ctx context.Context, youtubeURL string) (TranscriptSegments, error) {
 	var out TranscriptSegments
 
-	if strings.Index(videoID, "-") == 0 {
-		videoID = "\\" + videoID
+	if strings.Index(youtubeURL, "-") == 0 {
+		youtubeURL = "\\" + youtubeURL
 	}
 
 	// 1) Run the CLI (pipx/pip installed)
-	cli := exec.CommandContext(ctx, "youtube_transcript_api", videoID, "--languages", "en", "es", "de", "pt")
+	cli := exec.CommandContext(ctx, "youtube_transcript_api", youtubeURL, "--languages", "en", "es", "de", "pt")
 	// --languages de en
 	// --languages de en --exclude-generated
 	// --languages de en --exclude-manually-created
