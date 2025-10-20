@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"youtwt/core"
 
 	"github.com/spf13/cobra"
 )
@@ -10,7 +11,7 @@ var rootCmd = &cobra.Command{
 	Use: "youtwit",
 	Short: "Spend less time on YouTube without missing out on content",
 	Long: "",
-	Run: getSummary,
+	Run: core.GetSummary,
 }
 
 func Execute() {
