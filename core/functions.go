@@ -20,9 +20,114 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func GetSummary(command *cobra.Command, args []string){
-	var summary string
+// Token limit configuration constants
+const (
+	MAX_SAFE_TOKENS  = 13950 // Maximum safe token count for transcripts
+	PROMPT_OVERHEAD  = 25    // Estimated tokens used by prompt template
+	RESPONSE_BUFFER  = 200   // Buffer for LLM response generation
+	MAX_CHUNK_TOKENS = MAX_SAFE_TOKENS - PROMPT_OVERHEAD - RESPONSE_BUFFER // Effective maximum per chunk
+)
 
+// estimateTokens estimates the number of tokens in a given text
+// Uses simple heuristic: 1 token ≈ 4 characters
+func estimateTokens(text string) int {
+	return len(text) / 4
+}
+
+// splitTranscript recursively splits a transcript into chunks that fit within token limits
+// Returns a slice of transcript chunks
+func splitTranscript(transcript string, maxTokens int) []string {
+	tokens := estimateTokens(transcript)
+
+	// Base case: transcript fits within limit
+	if tokens <= maxTokens {
+		return []string{transcript}
+	}
+
+	// Recursive case: split in half and process each half
+	mid := len(transcript) / 2
+
+	// Find a good split point near the middle (prefer splitting at spaces)
+	splitPoint := mid
+	searchRadius := len(transcript) / 20 // Search within 5% of midpoint
+
+	for i := 0; i < searchRadius && mid+i < len(transcript); i++ {
+		if transcript[mid+i] == ' ' || transcript[mid+i] == '\n' {
+			splitPoint = mid + i
+			break
+		}
+		if mid-i >= 0 && (transcript[mid-i] == ' ' || transcript[mid-i] == '\n') {
+			splitPoint = mid - i
+			break
+		}
+	}
+
+	leftHalf := strings.TrimSpace(transcript[:splitPoint])
+	rightHalf := strings.TrimSpace(transcript[splitPoint:])
+
+	// Recursively split both halves
+	leftChunks := splitTranscript(leftHalf, maxTokens)
+	rightChunks := splitTranscript(rightHalf, maxTokens)
+
+	// Combine results
+	return append(leftChunks, rightChunks...)
+}
+
+// summarizeChunk summarizes a single transcript chunk using the specified LLM
+func summarizeChunk(ctx context.Context, transcript, chunkLabel string, useOllama bool) (string, error) {
+	var prompt string
+	if chunkLabel != "" {
+		prompt = fmt.Sprintf("Summarize the following transcript segment (%s) into around 600 characters: %s", chunkLabel, transcript)
+	} else {
+		prompt = fmt.Sprintf("Summarize the following transcript of a video into around 600 characters: %s", transcript)
+	}
+
+	if useOllama {
+		resp, err := Generate(ctx, "", "qwen3:14b", prompt)
+		if err != nil {
+			return "", fmt.Errorf("ollama generation failed: %w", err)
+		}
+		return StripThink(resp.Response), nil
+	} else {
+		openAiResponse, err := CallOpenAI(ctx, transcript)
+		if err != nil {
+			return "", fmt.Errorf("openai request failed: %w", err)
+		}
+		return openAiResponse.Output[0].Content[0].Text, nil
+	}
+}
+
+// mergeSummaries combines multiple partial summaries into one cohesive summary
+func mergeSummaries(ctx context.Context, summaries []string, useOllama bool) (string, error) {
+	if len(summaries) == 1 {
+		return summaries[0], nil
+	}
+
+	// Join all summaries with clear separators
+	var sb strings.Builder
+	for i, summary := range summaries {
+		sb.WriteString(fmt.Sprintf("Part %d: %s\n\n", i+1, summary))
+	}
+
+	prompt := fmt.Sprintf("The following are summaries of parts of a single video transcript. Combine them into one cohesive summary of around 600 characters:\n\n%s", sb.String())
+
+	if useOllama {
+		resp, err := Generate(ctx, "", "qwen3:14b", prompt)
+		if err != nil {
+			return "", fmt.Errorf("failed to merge summaries with ollama: %w", err)
+		}
+		return StripThink(resp.Response), nil
+	} else {
+		// For OpenAI, we need to pass the merged prompt directly
+		openAiResponse, err := CallOpenAI(ctx, sb.String())
+		if err != nil {
+			return "", fmt.Errorf("failed to merge summaries with openai: %w", err)
+		}
+		return openAiResponse.Output[0].Content[0].Text, nil
+	}
+}
+
+func GetSummary(command *cobra.Command, args []string){
 	fmt.Print("Enter youtube URL: ")
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -37,38 +142,89 @@ func GetSummary(command *cobra.Command, args []string){
 		youtubeURL = after
 	}
 
+	// Initial context for fetching transcript
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 
 	transcript, err := GetTranscript(ctx, youtubeURL)
 	if err != nil {
-		panic(fmt.Errorf("panic error: %s", err))
+		fmt.Printf("Error fetching transcript: %v\n", err)
+		return
 	}
 
 	transcriptString := TranscriptToString(transcript)
+	estimatedTokens := estimateTokens(transcriptString)
 
-	fmt.Println("~Tokens", len(transcriptString)/4)
-	// TODO: wrap request functions into a client and structure a response
-	if useOllama {
-		resp, err := Generate(ctx, "", "qwen3:14b", fmt.Sprintf("Summarize the following transcript of a video into around 600 characters: %s", transcriptString))
-	if err != nil {
-			panic(fmt.Errorf("at ollama generation %s", err))
+	fmt.Printf("~Tokens: %d\n", estimatedTokens)
+
+	// Calculate dynamic timeout based on expected number of chunks
+	timeout := 180 * time.Second
+	if estimatedTokens > MAX_SAFE_TOKENS {
+		numChunks := (estimatedTokens / MAX_CHUNK_TOKENS) + 1
+		// 120s per chunk + 120s for merge operation
+		timeout = time.Duration(120*numChunks+120) * time.Second
+		fmt.Printf("Extended timeout to %v for %d chunks\n", timeout, numChunks)
+	}
+
+	// Replace context with appropriate timeout for summarization
+	cancel() // Cancel old context
+	ctx, cancel = context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	var finalSummaryText string
+
+	// Check if transcript needs to be split
+	if estimatedTokens > MAX_SAFE_TOKENS {
+		fmt.Printf("Transcript too long (%d tokens), splitting into chunks...\n", estimatedTokens)
+
+		// Split transcript into manageable chunks
+		chunks := splitTranscript(transcriptString, MAX_CHUNK_TOKENS)
+		numChunks := len(chunks)
+
+		fmt.Printf("Split into %d parts. Summarizing each part...\n", numChunks)
+
+		// Summarize each chunk
+		summaries := make([]string, 0, numChunks)
+		for i, chunk := range chunks {
+			chunkLabel := fmt.Sprintf("Part %d of %d", i+1, numChunks)
+			fmt.Printf("Summarizing %s...\n", chunkLabel)
+
+			chunkSummary, err := summarizeChunk(ctx, chunk, chunkLabel, useOllama)
+			if err != nil {
+				fmt.Printf("Error summarizing chunk %d: %v\n", i+1, err)
+				return
+			}
+			summaries = append(summaries, chunkSummary)
 		}
-		clean := StripThink(resp.Response)
-		summary = makeSummary(youtubeURL, clean)
+
+		// Merge all summaries into one cohesive summary
+		fmt.Println("Merging summaries into final summary...")
+		mergedSummary, err := mergeSummaries(ctx, summaries, useOllama)
+		if err != nil {
+			fmt.Printf("Error merging summaries: %v\n", err)
+			return
+		}
+		finalSummaryText = mergedSummary
+
 	} else {
-
-	openAiResponse, err := CallOpenAI(ctx, fmt.Sprintf("Summarize the following transcript of a video into around 600 characters: %s", transcriptString))
-	if err != nil {
-		panic(fmt.Errorf("at openAiResponse: %s", err))
+		// Transcript fits within limits, summarize directly
+		fmt.Println("Generating summary...")
+		summaryText, err := summarizeChunk(ctx, transcriptString, "", useOllama)
+		if err != nil {
+			fmt.Printf("Error generating summary: %v\n", err)
+			return
+		}
+		finalSummaryText = summaryText
 	}
 
-	openAiResponseText := openAiResponse.Output[0].Content[0].Text
-	summary = makeSummary(youtubeURL, openAiResponseText)
-	}
+	summary := makeSummary(youtubeURL, finalSummaryText)
+	fmt.Printf("\nLocal model: %v\n%s\n", useOllama, summary)
 
-	fmt.Printf("Local model: %v\n%s\n", useOllama, summary)
-	clipboard.WriteAll(summary)
+	if err := clipboard.WriteAll(summary); err != nil {
+		fmt.Printf("Warning: Could not copy to clipboard: %v\n", err)
+	} else {
+		fmt.Println("(Summary copied to clipboard)")
+	}
 }
 
 
@@ -96,7 +252,7 @@ func GetTranscript(ctx context.Context, youtubeURL string) (TranscriptSegments, 
 	}
 
 	// 1) Run the CLI (pipx/pip installed)
-	cli := exec.CommandContext(ctx, "youtube_transcript_api", youtubeURL, "--languages", "en", "es", "de", "pt")
+	cli := exec.CommandContext(ctx, "youtube_transcript_api", youtubeURL, "--languages", "en", "es", "es-ES", "de", "pt")
 	// --languages de en
 	// --languages de en --exclude-generated
 	// --languages de en --exclude-manually-created

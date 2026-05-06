@@ -1,6 +1,6 @@
 package main
 
-import "youtwt/cmd"
+import "youtwit/cmd"
 
 func main() {
 	cmd.Execute()

@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"youtwt/core"
+	"youtwit/core"
 
 	"github.com/spf13/cobra"
 )

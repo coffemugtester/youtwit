@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"youtwt/server"
+	"youtwit/server"
 
 	"github.com/spf13/cobra"
 )

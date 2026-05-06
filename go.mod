@@ -1,4 +1,4 @@
-module youtwt
+module youtwit
 
 go 1.24.5
 
